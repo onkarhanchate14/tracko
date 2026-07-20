@@ -8,12 +8,16 @@ import android.provider.Telephony
 class PaymentSmsReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-    val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-    if (messages.isEmpty()) return
-    val body = messages.joinToString("") { it.messageBody ?: "" }
-    val transaction = PaymentParser.parse(body, messages.first().originatingAddress) ?: return
-    if (!PendingTransactionStore.add(context, transaction)) return
-    if (TrackoSmsModule.emitIfForeground(transaction)) return
-    PaymentOverlayManager.show(context, transaction)
+
+    val pendingResult = goAsync()
+    try {
+      val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+      if (messages.isEmpty()) return
+      val body = messages.joinToString("") { it.messageBody ?: "" }.trim()
+      if (body.isBlank()) return
+      PaymentSmsHandler.handle(context, body, messages.first().originatingAddress)
+    } finally {
+      pendingResult.finish()
+    }
   }
 }

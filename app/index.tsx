@@ -15,7 +15,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import TrackoSms, { PaymentTransaction } from "@/modules/tracko-sms";
+import TrackoSms, {
+  PaymentTransaction,
+  TrackingDiagnostics,
+} from "@/modules/tracko-sms";
 
 import {
   Expense,
@@ -79,6 +82,8 @@ export default function Index() {
   const [smsPermissionGranted, setSmsPermissionGranted] = useState(false);
   const [overlayPermissionGranted, setOverlayPermissionGranted] =
     useState(false);
+  const [trackingDiagnostics, setTrackingDiagnostics] =
+    useState<TrackingDiagnostics | null>(null);
 
   const openNativePayment = useCallback(
     (transaction: PaymentTransaction) => {
@@ -130,6 +135,15 @@ export default function Index() {
     return false;
   }, []);
 
+  const refreshTrackingDiagnostics = useCallback(() => {
+    if (process.env.EXPO_OS !== "android") return;
+    try {
+      setTrackingDiagnostics(TrackoSms.getTrackingDiagnostics());
+    } catch {
+      setTrackingDiagnostics(null);
+    }
+  }, []);
+
   const syncNativeTrackingState = useCallback(
     (includePendingFallback: boolean) => {
       importOverlaySavedTransactions();
@@ -139,13 +153,18 @@ export default function Index() {
         if (pending[0]) nativePaymentHandler.current(pending[0]);
       }
       setOverlayPermissionGranted(TrackoSms.getOverlayPermissionStatus());
+      refreshTrackingDiagnostics();
       if (process.env.EXPO_OS === "android") {
-        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS).then(
-          setSmsPermissionGranted,
-        );
+        PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+        ).then(setSmsPermissionGranted);
       }
     },
-    [consumeNativeLaunch, importOverlaySavedTransactions],
+    [
+      consumeNativeLaunch,
+      importOverlaySavedTransactions,
+      refreshTrackingDiagnostics,
+    ],
   );
 
   useEffect(() => {
@@ -414,12 +433,47 @@ export default function Index() {
               <Text style={styles.setupTitle}>Turn on automatic tracking</Text>
               <Text style={styles.setupText}>
                 Allow payment SMS and popup access. Everything stays on this
-                phone.
+                phone. Use a development build, not Expo Go.
               </Text>
             </View>
             <Text style={styles.setupAction}>Set up ›</Text>
           </Pressable>
         )}
+
+        {process.env.EXPO_OS === "android" &&
+          smsPermissionGranted &&
+          overlayPermissionGranted && (
+            <View style={styles.debugCard}>
+              <Text style={styles.debugTitle}>SMS tracking active</Text>
+              <Text style={styles.debugText}>
+                Send a real SMS (not chat/RCS) like:{"\n"}
+                Rs.250 debited from A/c XX1234 to SWIGGY via UPI
+              </Text>
+              {trackingDiagnostics?.lastSms ? (
+                <>
+                  <Text style={styles.debugMeta}>
+                    Last SMS: {trackingDiagnostics.lastSms.status}
+                    {trackingDiagnostics.lastSms.parsed
+                      ? ` · ₹${trackingDiagnostics.lastSms.amount} at ${trackingDiagnostics.lastSms.merchant}`
+                      : ""}
+                  </Text>
+                  <Text style={styles.debugBody} numberOfLines={3}>
+                    {trackingDiagnostics.lastSms.body}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.debugMeta}>
+                  No payment SMS received yet on this device.
+                </Text>
+              )}
+              <Pressable
+                onPress={refreshTrackingDiagnostics}
+                style={styles.debugRefresh}
+              >
+                <Text style={styles.debugRefreshText}>Refresh status</Text>
+              </Pressable>
+            </View>
+          )}
 
         <View style={styles.sectionHeading}>
           <Text style={styles.sectionTitle}>Where it went</Text>
@@ -842,6 +896,46 @@ const styles = StyleSheet.create({
   },
   setupText: { color: "#52715B", fontSize: 12, lineHeight: 17, flexShrink: 1 },
   setupAction: { color: "#1D6D40", fontSize: 14, fontWeight: "800" },
+  debugCard: {
+    backgroundColor: "#F8FAF7",
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8DE",
+  },
+  debugTitle: {
+    color: "#1D2520",
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  debugText: {
+    color: "#5A695E",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  debugMeta: {
+    color: "#1D6D40",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 10,
+  },
+  debugBody: {
+    color: "#777A73",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  debugRefresh: {
+    alignSelf: "flex-start",
+    marginTop: 10,
+  },
+  debugRefreshText: {
+    color: "#1D6D40",
+    fontSize: 13,
+    fontWeight: "600",
+  },
   sectionHeading: {
     flexDirection: "row",
     justifyContent: "space-between",

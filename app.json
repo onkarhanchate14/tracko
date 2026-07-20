@@ -46,7 +46,8 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "./modules/tracko-sms/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": true,

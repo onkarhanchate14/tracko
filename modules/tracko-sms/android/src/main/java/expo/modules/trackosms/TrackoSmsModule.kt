@@ -1,15 +1,23 @@
 package expo.modules.trackosms
 
+import android.app.ActivityManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.provider.Telephony
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.lang.ref.WeakReference
 
 class TrackoSmsModule : Module() {
+  private var dynamicReceiver: BroadcastReceiver? = null
+
   override fun definition() = ModuleDefinition {
     Name("TrackoSms")
     Events("onPaymentReceived")
@@ -17,15 +25,15 @@ class TrackoSmsModule : Module() {
     OnCreate {
       instance = WeakReference(this@TrackoSmsModule)
       captureLaunchIntent(appContext.currentActivity?.intent)
+      registerDynamicReceiver()
     }
     OnDestroy {
+      unregisterDynamicReceiver()
       if (instance?.get() === this@TrackoSmsModule) instance = null
     }
     OnActivityEntersForeground {
-      isForeground = true
       captureLaunchIntent(appContext.currentActivity?.intent)
     }
-    OnActivityEntersBackground { isForeground = false }
     OnNewIntent { intent -> captureLaunchIntent(intent) }
 
     Function("getPendingTransactions") {
@@ -40,6 +48,19 @@ class TrackoSmsModule : Module() {
       launchTransactionId = null
       PendingTransactionStore.findById(context, id)?.toMap()
     }
+    Function("getLastSmsDebug") {
+      val context = appContext.reactContext ?: return@Function null
+      PaymentDebugStore.last(context)
+    }
+    Function("getTrackingDiagnostics") {
+      val context = appContext.reactContext ?: return@Function emptyMap<String, Any?>()
+      mapOf(
+        "nativeModuleReady" to true,
+        "overlayPermissionGranted" to getOverlayPermissionStatus(context),
+        "pendingCount" to PendingTransactionStore.pending(context).size,
+        "lastSms" to PaymentDebugStore.last(context),
+      )
+    }
     Function("markTransactionImported") { id: String ->
       appContext.reactContext?.let { PendingTransactionStore.updateStatus(it, id, "imported") }
     }
@@ -48,8 +69,56 @@ class TrackoSmsModule : Module() {
     }
     Function("getOverlayPermissionStatus") {
       val context = appContext.reactContext ?: return@Function false
-      Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+      getOverlayPermissionStatus(context)
     }
+  }
+
+  private fun getOverlayPermissionStatus(context: Context): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+  }
+
+  private fun registerDynamicReceiver() {
+    val context = appContext.reactContext?.applicationContext ?: return
+    if (dynamicReceiver != null) return
+
+    dynamicReceiver = PaymentSmsReceiver()
+    val filter = IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION).apply {
+      priority = 999
+    }
+
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.registerReceiver(
+          dynamicReceiver,
+          filter,
+          android.Manifest.permission.BROADCAST_SMS,
+          null,
+          Context.RECEIVER_EXPORTED,
+        )
+      } else {
+        @Suppress("UnspecifiedRegisterReceiverFlag")
+        context.registerReceiver(
+          dynamicReceiver,
+          filter,
+          android.Manifest.permission.BROADCAST_SMS,
+          null,
+        )
+      }
+      Log.i(TAG, "Dynamic SMS receiver registered")
+    } catch (error: Exception) {
+      Log.e(TAG, "Failed to register dynamic SMS receiver", error)
+    }
+  }
+
+  private fun unregisterDynamicReceiver() {
+    val context = appContext.reactContext?.applicationContext ?: return
+    dynamicReceiver?.let {
+      try {
+        context.unregisterReceiver(it)
+      } catch (_: Exception) {
+      }
+    }
+    dynamicReceiver = null
   }
 
   private fun sendPayment(transaction: PaymentTransaction) {
@@ -57,16 +126,26 @@ class TrackoSmsModule : Module() {
   }
 
   companion object {
+    private const val TAG = "TrackoSms"
     private const val LAUNCH_TRANSACTION_EXTRA = "trackoTransactionId"
     private var instance: WeakReference<TrackoSmsModule>? = null
-    @Volatile private var isForeground = false
     @Volatile private var launchTransactionId: String? = null
 
-    fun emitIfForeground(transaction: PaymentTransaction): Boolean {
+    fun emitIfForeground(context: Context, transaction: PaymentTransaction): Boolean {
+      if (!isAppInForeground(context)) return false
       val module = instance?.get() ?: return false
-      if (!isForeground) return false
       Handler(Looper.getMainLooper()).post { module.sendPayment(transaction) }
+      Log.i(TAG, "Forwarded payment to React while app is foreground")
       return true
+    }
+
+    private fun isAppInForeground(context: Context): Boolean {
+      val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+      val processes = manager.runningAppProcesses ?: return false
+      return processes.any {
+        it.processName == context.packageName &&
+          it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+      }
     }
 
     private fun captureLaunchIntent(intent: Intent?) {

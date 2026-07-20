@@ -18,6 +18,24 @@ export type PaymentTransaction = {
   status: string;
 };
 
+export type SmsDebugInfo = {
+  receivedAt: string;
+  sender: string | null;
+  body: string;
+  status: string;
+  parsed: boolean;
+  merchant: string | null;
+  amount: number | null;
+  category: string | null;
+};
+
+export type TrackingDiagnostics = {
+  nativeModuleReady: boolean;
+  overlayPermissionGranted: boolean;
+  pendingCount: number;
+  lastSms: SmsDebugInfo | null;
+};
+
 export type TrackoSmsViewProps = {
   url: string;
   onLoad: (event: { nativeEvent: OnLoadEventPayload }) => void;
