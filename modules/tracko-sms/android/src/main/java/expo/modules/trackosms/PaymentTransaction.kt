@@ -12,7 +12,9 @@ data class PaymentTransaction(
   val bank: String?,
   val occurredAt: String,
   val fingerprint: String,
-  val status: String = "pending"
+  val status: String = "pending",
+  val person: String? = null,
+  val rawBody: String? = null
 ) {
   fun toJson() = JSONObject().apply {
     put("id", id)
@@ -23,6 +25,8 @@ data class PaymentTransaction(
     put("occurredAt", occurredAt)
     put("fingerprint", fingerprint)
     put("status", status)
+    put("person", person)
+    put("rawBody", rawBody)
   }
 
   fun toMap() = mapOf(
@@ -32,7 +36,9 @@ data class PaymentTransaction(
     "category" to category,
     "bank" to bank,
     "occurredAt" to occurredAt,
-    "status" to status
+    "status" to status,
+    "person" to person,
+    "rawBody" to rawBody
   )
 
   companion object {
@@ -44,7 +50,9 @@ data class PaymentTransaction(
       bank = json.optString("bank").ifBlank { null },
       occurredAt = json.getString("occurredAt"),
       fingerprint = json.getString("fingerprint"),
-      status = json.optString("status", "pending")
+      status = json.optString("status", "pending"),
+      person = json.optString("person").ifBlank { null },
+      rawBody = json.optString("rawBody").ifBlank { null }
     )
 
     fun fingerprint(value: String): String {

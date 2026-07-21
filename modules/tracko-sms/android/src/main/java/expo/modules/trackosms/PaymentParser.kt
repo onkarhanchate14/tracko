@@ -59,6 +59,7 @@ object PaymentParser {
       bank = sender?.takeIf { it.isNotBlank() },
       occurredAt = Instant.now().toString(),
       fingerprint = PaymentTransaction.fingerprint("$sender|$normalized"),
+      rawBody = message.take(500),
     )
   }
 

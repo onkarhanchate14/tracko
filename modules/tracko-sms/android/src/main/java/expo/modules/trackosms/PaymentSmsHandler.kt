@@ -19,7 +19,11 @@ object PaymentSmsHandler {
       return
     }
 
-    val transaction = PaymentParser.parse(body, sender)
+    val parsed = PaymentParser.parse(body, sender)
+    val transaction = parsed?.let {
+      val learned = OverlayConfigStore.learnedCategory(appContext, it.merchant)
+      if (learned != null) it.copy(category = learned) else it
+    }
     PaymentDebugStore.record(
       appContext,
       body,

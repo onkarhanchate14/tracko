@@ -1,4 +1,4 @@
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { StyleProp, ViewStyle } from "react-native";
 
 export type OnLoadEventPayload = {
   url: string;
@@ -16,6 +16,15 @@ export type PaymentTransaction = {
   bank: string | null;
   occurredAt: string;
   status: string;
+  person?: string | null;
+  rawBody?: string | null;
+};
+
+export type OverlayConfig = {
+  categories: string[];
+  people: string[];
+  defaultPerson: string | null;
+  merchantCategories: Record<string, string>;
 };
 
 export type SmsDebugInfo = {

@@ -22,6 +22,28 @@ object PendingTransactionStore {
     write(context, all(context).map { if (it.id == id) it.copy(status = status) else it })
   }
 
+  fun saveWithSelection(
+    context: Context,
+    id: String,
+    category: String?,
+    person: String?,
+  ) {
+    write(
+      context,
+      all(context).map {
+        if (it.id == id) {
+          it.copy(
+            status = "overlay_saved",
+            category = category?.ifBlank { null } ?: it.category,
+            person = person?.ifBlank { null } ?: it.person,
+          )
+        } else {
+          it
+        }
+      },
+    )
+  }
+
   private fun all(context: Context): List<PaymentTransaction> = try {
     val values = JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]"))
     (0 until values.length()).map { PaymentTransaction.fromJson(values.getJSONObject(it)) }

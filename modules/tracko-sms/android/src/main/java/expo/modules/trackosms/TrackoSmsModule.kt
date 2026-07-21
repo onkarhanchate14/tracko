@@ -72,6 +72,18 @@ class TrackoSmsModule : Module() {
     Function("markTransactionImported") { id: String ->
       appContext.reactContext?.let { PendingTransactionStore.updateStatus(it, id, "imported") }
     }
+    Function("setOverlayConfig") { config: Map<String, Any?> ->
+      val context = appContext.reactContext ?: return@Function
+      @Suppress("UNCHECKED_CAST")
+      val categories = (config["categories"] as? List<String>) ?: emptyList()
+      @Suppress("UNCHECKED_CAST")
+      val people = (config["people"] as? List<String>) ?: emptyList()
+      val defaultPerson = config["defaultPerson"] as? String
+      @Suppress("UNCHECKED_CAST")
+      val merchantCategories =
+        (config["merchantCategories"] as? Map<String, String>) ?: emptyMap()
+      OverlayConfigStore.save(context, categories, people, defaultPerson, merchantCategories)
+    }
     Function("openOverlaySettings") {
       appContext.reactContext?.let { PaymentOverlayManager.openOverlaySettings(it) }
     }
