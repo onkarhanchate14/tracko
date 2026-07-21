@@ -24,6 +24,9 @@ class TrackoSmsModule : Module() {
 
     OnCreate {
       instance = WeakReference(this@TrackoSmsModule)
+      // Do NOT assume foreground here: the process can be started headlessly by the
+      // SMS broadcast while no activity is visible. Foreground is set only once an
+      // activity actually resumes (OnActivityEntersForeground).
       captureLaunchIntent(appContext.currentActivity?.intent)
       registerDynamicReceiver()
     }
@@ -32,7 +35,12 @@ class TrackoSmsModule : Module() {
       if (instance?.get() === this@TrackoSmsModule) instance = null
     }
     OnActivityEntersForeground {
+      isForeground = true
+      appContext.reactContext?.let { PaymentOverlayManager.remove(it) }
       captureLaunchIntent(appContext.currentActivity?.intent)
+    }
+    OnActivityEntersBackground {
+      isForeground = false
     }
     OnNewIntent { intent -> captureLaunchIntent(intent) }
 
@@ -130,9 +138,13 @@ class TrackoSmsModule : Module() {
     private const val LAUNCH_TRANSACTION_EXTRA = "trackoTransactionId"
     private var instance: WeakReference<TrackoSmsModule>? = null
     @Volatile private var launchTransactionId: String? = null
+    @Volatile private var isForeground: Boolean = false
 
     fun emitIfForeground(context: Context, transaction: PaymentTransaction): Boolean {
-      if (!isAppInForeground(context)) return false
+      // Only deliver in-app when the activity is genuinely resumed. The lifecycle
+      // flag is authoritative; the process-importance check is a defensive fallback.
+      val foreground = isForeground && isAppInForeground(context)
+      if (!foreground) return false
       val module = instance?.get() ?: return false
       Handler(Looper.getMainLooper()).post { module.sendPayment(transaction) }
       Log.i(TAG, "Forwarded payment to React while app is foreground")
@@ -140,11 +152,15 @@ class TrackoSmsModule : Module() {
     }
 
     private fun isAppInForeground(context: Context): Boolean {
-      val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-      val processes = manager.runningAppProcesses ?: return false
-      return processes.any {
-        it.processName == context.packageName &&
-          it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+      return try {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val processes = manager.runningAppProcesses ?: return false
+        processes.any {
+          it.processName == context.packageName &&
+            it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        }
+      } catch (_: Exception) {
+        false
       }
     }
 

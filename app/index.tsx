@@ -106,6 +106,8 @@ export default function Index() {
   );
   const nativePaymentHandler = useRef(openNativePayment);
   nativePaymentHandler.current = openNativePayment;
+  const captureOpenRef = useRef(captureOpen);
+  captureOpenRef.current = captureOpen;
 
   const importOverlaySavedTransactions = useCallback(() => {
     const saved = TrackoSms.getOverlaySavedTransactions();
@@ -148,7 +150,7 @@ export default function Index() {
     (includePendingFallback: boolean) => {
       importOverlaySavedTransactions();
       const handledLaunch = consumeNativeLaunch();
-      if (includePendingFallback && !handledLaunch) {
+      if (includePendingFallback && !handledLaunch && !captureOpenRef.current) {
         const pending = TrackoSms.getPendingTransactions();
         if (pending[0]) nativePaymentHandler.current(pending[0]);
       }
@@ -179,18 +181,27 @@ export default function Index() {
   useEffect(() => {
     const subscription = TrackoSms.addListener(
       "onPaymentReceived",
-      (transaction) => nativePaymentHandler.current(transaction),
+      (transaction) => {
+        nativePaymentHandler.current(transaction);
+        refreshTrackingDiagnostics();
+      },
     );
     return () => subscription.remove();
-  }, []);
+  }, [refreshTrackingDiagnostics]);
 
   useEffect(() => {
     if (process.env.EXPO_OS !== "android") return;
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") syncNativeTrackingState(false);
+      if (state === "active") syncNativeTrackingState(true);
     });
     return () => subscription.remove();
   }, [syncNativeTrackingState]);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== "android" || !smsPermissionGranted) return;
+    const interval = setInterval(refreshTrackingDiagnostics, 3000);
+    return () => clearInterval(interval);
+  }, [smsPermissionGranted, refreshTrackingDiagnostics]);
 
   const totals = useMemo(() => {
     const now = new Date();
@@ -440,40 +451,42 @@ export default function Index() {
           </Pressable>
         )}
 
-        {process.env.EXPO_OS === "android" &&
-          smsPermissionGranted &&
-          overlayPermissionGranted && (
-            <View style={styles.debugCard}>
-              <Text style={styles.debugTitle}>SMS tracking active</Text>
-              <Text style={styles.debugText}>
-                Send a real SMS (not chat/RCS) like:{"\n"}
-                Rs.250 debited from A/c XX1234 to SWIGGY via UPI
-              </Text>
-              {trackingDiagnostics?.lastSms ? (
-                <>
-                  <Text style={styles.debugMeta}>
-                    Last SMS: {trackingDiagnostics.lastSms.status}
-                    {trackingDiagnostics.lastSms.parsed
-                      ? ` · ₹${trackingDiagnostics.lastSms.amount} at ${trackingDiagnostics.lastSms.merchant}`
-                      : ""}
-                  </Text>
-                  <Text style={styles.debugBody} numberOfLines={3}>
-                    {trackingDiagnostics.lastSms.body}
-                  </Text>
-                </>
-              ) : (
+        {process.env.EXPO_OS === "android" && smsPermissionGranted && (
+          <View style={styles.debugCard}>
+            <Text style={styles.debugTitle}>SMS tracking active</Text>
+            <Text style={styles.debugText}>
+              Send a real SMS (not chat/RCS) like:{"\n"}
+              Rs.250 debited from A/c XX1234 to SWIGGY via UPI
+            </Text>
+            <Text style={styles.debugMeta}>
+              Popup access:{" "}
+              {overlayPermissionGranted ? "on" : "off (using notifications)"}
+            </Text>
+            {trackingDiagnostics?.lastSms ? (
+              <>
                 <Text style={styles.debugMeta}>
-                  No payment SMS received yet on this device.
+                  Last SMS: {trackingDiagnostics.lastSms.status}
+                  {trackingDiagnostics.lastSms.parsed
+                    ? ` · ₹${trackingDiagnostics.lastSms.amount} at ${trackingDiagnostics.lastSms.merchant}`
+                    : ""}
                 </Text>
-              )}
-              <Pressable
-                onPress={refreshTrackingDiagnostics}
-                style={styles.debugRefresh}
-              >
-                <Text style={styles.debugRefreshText}>Refresh status</Text>
-              </Pressable>
-            </View>
-          )}
+                <Text style={styles.debugBody} numberOfLines={3}>
+                  {trackingDiagnostics.lastSms.body}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.debugMeta}>
+                No payment SMS received yet on this device.
+              </Text>
+            )}
+            <Pressable
+              onPress={refreshTrackingDiagnostics}
+              style={styles.debugRefresh}
+            >
+              <Text style={styles.debugRefreshText}>Refresh status</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.sectionHeading}>
           <Text style={styles.sectionTitle}>Where it went</Text>
